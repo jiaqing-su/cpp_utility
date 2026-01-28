@@ -126,6 +126,6 @@ inline std::wstring GetFileVersionWString(const StringT& lpFilePath)
 }
 
 } // namespace file
-} // namespace sj
+} // namespace sjq
 
 #endif //_FILE_VER_HPP_

@@ -1,0 +1,5 @@
+# Project files to ignore
+.vs
+test/.vs/
+test/x64/
+test/*/x64/
