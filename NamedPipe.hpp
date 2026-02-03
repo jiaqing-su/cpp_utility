@@ -14,16 +14,10 @@ namespace sjq
             bool m_bMessageMode = true;
 
         public:
-            NamedPipeClient(const std::string &name)
-            {
-                m_wstrPipeName = "\\\\.\\pipe\\" + name;
-            }
-            NamedPipeClient(const std::string &name, std::string host, bool messageMode)
+            NamedPipeClient(const std::string &name, bool messageMode = true)
                 : m_bMessageMode(messageMode)
             {
-                if (host.empty())
-                    host = ".";
-                m_wstrPipeName = "\\\\" + host + "\\pipe\\" + name;
+                m_wstrPipeName = "\\\\.\\pipe\\" + name;
             }
             ~NamedPipeClient() = default;
             bool Connect(uint32_t timeout = 5000)
@@ -33,7 +27,7 @@ namespace sjq
                 {
                     m_hDevice = CreateFileA(
                         m_wstrPipeName.c_str(),
-                        GENERIC_READ | GENERIC_WRITE| FILE_WRITE_ATTRIBUTES,
+                        GENERIC_READ | GENERIC_WRITE | FILE_WRITE_ATTRIBUTES,
                         0,
                         NULL,
                         OPEN_EXISTING,
@@ -60,15 +54,15 @@ namespace sjq
 
                 } while (retryCount++ < 10);
 
-                 DWORD mode = m_bMessageMode ? PIPE_READMODE_MESSAGE : PIPE_READMODE_BYTE;
-                 mode |= PIPE_WAIT;
-                 //SetNamedPipeHandleState need FILE_WRITE_ATTRIBUTES
-                 if (!SetNamedPipeHandleState(m_hDevice, &mode, NULL, NULL))
-                 {
-                     PrintError("SetNamedPipeHandleState", GetLastError());
-                     Close();
-                     return false;
-                 }
+                DWORD mode = m_bMessageMode ? PIPE_READMODE_MESSAGE : PIPE_READMODE_BYTE;
+                mode |= PIPE_WAIT;
+                // SetNamedPipeHandleState need FILE_WRITE_ATTRIBUTES
+                if (!SetNamedPipeHandleState(m_hDevice, &mode, NULL, NULL))
+                {
+                    PrintError("SetNamedPipeHandleState", GetLastError());
+                    Close();
+                    return false;
+                }
 
                 return true;
             }
@@ -77,38 +71,31 @@ namespace sjq
         class NamedPipeServer : public IODevice
         {
             std::string m_strPipeName;
-            bool m_bMessageMode = true;
-            //DWORD m_dwMaxInstances = PIPE_UNLIMITED_INSTANCES;
-            //DWORD m_dwOutBufSize = 4096;
-            //DWORD m_dwInBufSize = 4096;
             bool m_bConnected = false;
+            DWORD m_dwPipeMode = PIPE_TYPE_BYTE | PIPE_READMODE_BYTE;
 
         public:
-            NamedPipeServer(const std::string &name)
+            NamedPipeServer(const std::string &name, bool messageMode = true, bool blocked = false)
             {
                 m_strPipeName = "\\\\.\\pipe\\" + name;
-            }
-            NamedPipeServer(const std::string &name, std::string host, bool messageMode)
-                : m_bMessageMode(messageMode)
-            {
-                if (host.empty())
-                    host = ".";
-                m_strPipeName = "\\\\" + host + "\\pipe\\" + name;
+
+                if (messageMode)
+                    m_dwPipeMode = PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE;
+                else
+                    m_dwPipeMode = PIPE_TYPE_BYTE | PIPE_READMODE_BYTE;
+                m_dwPipeMode |= blocked ? PIPE_WAIT : PIPE_NOWAIT;
             }
             ~NamedPipeServer() = default;
 
-			bool Start(DWORD dwMaxInstances = PIPE_UNLIMITED_INSTANCES, DWORD dwBufSize = 0)
+            bool WaitConnect(uint32_t timeout = -1)
             {
-                DWORD dwPipeMode = PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT;
-                if (m_bMessageMode)
-                    dwPipeMode = PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT;
                 m_hDevice = CreateNamedPipeA(
                     m_strPipeName.c_str(),
                     PIPE_ACCESS_DUPLEX,
-                    dwPipeMode,
-                    dwMaxInstances,
-                    dwBufSize,
-                    dwBufSize,
+                    m_dwPipeMode,
+                    PIPE_UNLIMITED_INSTANCES,
+                    4096,
+                    4096,
                     0,
                     NULL);
 
@@ -118,29 +105,44 @@ namespace sjq
                     return false;
                 }
 
-                BOOL fConnected = ConnectNamedPipe(m_hDevice, NULL);
-                if (fConnected)
+                uint32_t timeOfConnect = 0;
+                do
                 {
-                    m_bConnected = true;
-                }
-                else
-                {
+                    BOOL fConnected = ConnectNamedPipe(m_hDevice, NULL);
+                    if (fConnected)
+                    {
+                        m_bConnected = true;
+                        break;
+                    }
+
                     DWORD dwError = GetLastError();
                     if (dwError == ERROR_PIPE_CONNECTED)
                     {
                         m_bConnected = true;
+                        break;
+                    }
+
+                    if (ERROR_PIPE_LISTENING == dwError)
+                    {
+                        if (timeOfConnect > timeout)
+                        {
+                            break;
+                        }
+                        timeOfConnect += 100;
+                        Sleep(100);
                     }
                     else
                     {
                         PrintError("ConnectNamedPipe", dwError);
                         Close();
+                        break;
                     }
-                }
+                } while (1);
 
                 return m_bConnected;
             }
 
-            void Stop()
+            void Disconnect()
             {
                 if (!m_bConnected || !IsOpen())
                 {

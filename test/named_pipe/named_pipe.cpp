@@ -2,6 +2,7 @@
 //
 
 #include <iostream>
+#include <fstream>
 #include <memory>
 #include <thread>
 //#include "../../NamedPipeClient.hpp"
@@ -16,7 +17,7 @@ int main(int argc, const char* argv[])
 	if (isSvr) {
 		auto svr = std::make_shared<sjq::ipc::NamedPipeServer>("test");
 		pipe = svr;
-		if (!svr->Start())
+		if (!svr->WaitConnect())
 			return -1;
 	}
 	else {
@@ -26,26 +27,36 @@ int main(int argc, const char* argv[])
 			return -1;
 	}
 
-	std::thread([&]() {
-		std::string msg;
-		pipe->ReadMessage(msg);
-		std::cout << "recv:" << msg << std::endl;
-		}).detach();
+	//std::thread([&]() {
+	//	std::string msg;
+	//	pipe->ReadMessage(msg);
+	//	if (msg.empty() == false) {
+	//		std::ofstream ofs(isSvr ? "server.txt" : "client.txt", std::ios::app);
+	//		ofs << msg;
+	//	}
+	//	}).detach();
 
 	while (1)
 	{
 		std::string msg;
-		if (isSvr&&false) {			
+		if (isSvr) {			
 			pipe->ReadMessage(msg);
-			std::cout << "client:" << msg << std::endl;
-			pipe->WriteMessage(msg);
+			if (!msg.empty()) {
+				std::cout << "client:" << msg << std::endl;
+				msg.clear();
+				std::cin >> msg;
+				pipe->WriteMessage(msg);
+			}
 		}
-		else {
+		else 
+		{
 			std::cin >> msg;
 			pipe->WriteMessage(msg);
 			msg.clear();
-			//pipe->ReadMessage(msg);
-			//std::cout << msg << std::endl;
+			while (msg.empty()) {
+				pipe->ReadMessage(msg);
+				std::cout <<"server:" << msg << std::endl;
+			}
 		}
 	}
 

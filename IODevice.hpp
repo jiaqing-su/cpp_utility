@@ -152,6 +152,9 @@ namespace sjq
                     {
                         // Sleep(10);
                     }
+                    else if (error == ERROR_NO_DATA) {
+                        return false;
+                    }
                     else
                     {
                         PrintError("ReadFile", error);
