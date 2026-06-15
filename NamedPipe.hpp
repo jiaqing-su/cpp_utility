@@ -22,40 +22,38 @@ namespace sjq
             ~NamedPipeClient() = default;
             bool Connect(uint32_t timeout = 5000)
             {
-                int retryCount = 0;
-                do
-                {
-                    m_hDevice = CreateFileA(
-                        m_wstrPipeName.c_str(),
-                        GENERIC_READ | GENERIC_WRITE | FILE_WRITE_ATTRIBUTES,
-                        0,
-                        NULL,
-                        OPEN_EXISTING,
-                        0,
-                        NULL);
+				Close();
 
-                    if (m_hDevice != INVALID_HANDLE_VALUE)
-                        break; // ok
+				auto startTime = GetTickCount64();
+				do {
+					m_hDevice = CreateFileA(
+						m_wstrPipeName.c_str(),
+						GENERIC_READ | GENERIC_WRITE | FILE_WRITE_ATTRIBUTES,
+						0,
+						NULL,
+						OPEN_EXISTING,
+						0,
+						NULL);
+					if (m_hDevice != INVALID_HANDLE_VALUE)
+						break;
 
-                    DWORD dwError = GetLastError();
-                    PrintError("CreateFile", dwError);
-                    if (dwError == ERROR_PIPE_BUSY)
-                    {
-                        if (!WaitNamedPipeA(m_wstrPipeName.c_str(), timeout))
-                        {
-                            PrintError("WaitNamedPipe", dwError);
-                            return false;
-                        }
-                    }
-                    else
-                    {
-                        return false;
-                    }
+					DWORD dwError = GetLastError();
+					PrintError("CreateFile", dwError);
+					if (dwError != ERROR_PIPE_BUSY) {
+						return false;
+					}
+					auto elapsed = GetTickCount64() - startTime;
+					if (elapsed >= timeout) return false;
+					DWORD remaining = static_cast<DWORD>(timeout - elapsed);
+					if (!WaitNamedPipeA(m_wstrPipeName.c_str(), remaining)) {
+						dwError = GetLastError();
+						PrintError("WaitNamedPipe", dwError);
+						return false;
+					}
 
-                } while (retryCount++ < 10);
-
+				} while (true);
+		
                 DWORD mode = m_bMessageMode ? PIPE_READMODE_MESSAGE : PIPE_READMODE_BYTE;
-                mode |= PIPE_WAIT;
                 // SetNamedPipeHandleState need FILE_WRITE_ATTRIBUTES
                 if (!SetNamedPipeHandleState(m_hDevice, &mode, NULL, NULL))
                 {
@@ -89,16 +87,19 @@ namespace sjq
 
             bool WaitConnect(uint32_t timeout = -1)
             {
-                m_hDevice = CreateNamedPipeA(
-                    m_strPipeName.c_str(),
-                    PIPE_ACCESS_DUPLEX,
-                    m_dwPipeMode,
-                    PIPE_UNLIMITED_INSTANCES,
-                    4096,
-                    4096,
-                    0,
-                    NULL);
+                if (m_bConnected)return true;
 
+                if (m_hDevice == INVALID_HANDLE_VALUE) {
+                    m_hDevice = CreateNamedPipeA(
+                        m_strPipeName.c_str(),
+                        PIPE_ACCESS_DUPLEX,
+                        m_dwPipeMode,
+                        PIPE_UNLIMITED_INSTANCES,
+                        4096,
+                        4096,
+                        0,
+                        NULL);
+                }
                 if (m_hDevice == INVALID_HANDLE_VALUE)
                 {
                     PrintError("CreateNamedPipe", GetLastError());
@@ -142,20 +143,16 @@ namespace sjq
                 return m_bConnected;
             }
 
-            void Disconnect()
-            {
-                if (!m_bConnected || !IsOpen())
-                {
-                    return;
-                }
-
-                if (!DisconnectNamedPipe(m_hDevice))
-                {
-                    PrintError("DisconnectNamedPipe", GetLastError());
-                }
-                Close();
-                m_bConnected = false;
-            }
+			void Disconnect()
+			{
+				if (m_bConnected) {
+					if (IsOpen() && !DisconnectNamedPipe(m_hDevice)) {
+						PrintError("DisconnectNamedPipe", GetLastError());
+                        Close();
+					}
+					m_bConnected = false;
+				}
+			}
             bool IsConnected() const { return m_bConnected; }
         };
     }
