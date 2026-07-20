@@ -1,4 +1,4 @@
-#ifndef _PROCESS_HPP_
+﻿#ifndef _PROCESS_HPP_
 #define _PROCESS_HPP_
 
 #include <Windows.h>
@@ -49,6 +49,9 @@ namespace sjq {
 				return GetProcessId(m_hProcess);
 			}
 			return 0;
+		}
+		HANDLE GetNativeHandle()const {
+			return m_hProcess;
 		}
 
 		static uint32_t GetThisPid() {
